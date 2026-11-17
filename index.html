@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12285e">
+<title>InvoicePilot</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#0e1a3a;--mut:#5d6785;--line:#dde2ef;--pri:#12285e;--ok:#0a8a52;--warn:#a96a00;--bad:#c23a2b;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0a0f21;--card:#131a33;--ink:#eef1fa;--mut:#9aa4c2;--line:#26304f;--pri:#5b86ff;--ok:#3ccb8b;--warn:#e8b45c;--bad:#ff7b6b;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:84px}
+header{padding:16px 16px 0;max-width:640px;margin:0 auto}
+header b{font-size:20px;color:var(--pri);letter-spacing:-.3px}
+main{max-width:640px;margin:0 auto;padding:4px 16px 16px}
+h2{font-size:22px;margin:14px 0 8px}h3{margin:10px 0}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;color:var(--mut);padding:13px 4px;font:inherit;font-size:13px}
+nav button.on{color:var(--pri);font-weight:700;box-shadow:inset 0 3px 0 var(--pri)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}
+.btn{display:inline-block;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:11px 14px;border-radius:10px;font:inherit;font-weight:600;margin:6px 6px 0 0}
+.btn.p{background:var(--pri);color:#fff;border-color:var(--pri)}
+.btn.d{color:var(--bad)}
+input,select{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;margin:4px 0 10px}
+label{font-size:13px;color:var(--mut)}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.it{display:grid;grid-template-columns:2fr 1fr 1.4fr;gap:6px}
+.tag{font-size:12px;padding:2px 9px;border-radius:99px;font-weight:700;border:1px solid currentColor;display:inline-block}
+.paid{color:var(--ok)}.late{color:var(--bad)}.wait{color:var(--warn)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:7px 4px;border-bottom:1px solid var(--line);font-size:14px}
+.r{text-align:right}th.r,td.r{text-align:right}
+small{color:var(--mut)}
+.list{cursor:pointer;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.big{font-size:26px;font-weight:800;margin:0;letter-spacing:-.5px}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sheet{border-top:5px solid var(--pri)}
+@media print{
+:root{--bg:#fff;--card:#fff;--ink:#000;--mut:#444;--line:#ccc;--pri:#12285e;--ok:#0a6a3e;--warn:#7a4c00;--bad:#9a2a1e}
+nav,header,.noprint{display:none!important}
+body{padding:0}main{max-width:none;padding:0}.card{border:0;padding:0}
+}
+</style>
+</head>
+<body>
+<header><b>InvoicePilot</b></header>
+<main id="main"></main>
+<nav>
+<button data-v="home" onclick="go('home')">Accueil</button>
+<button data-v="inv" onclick="go('inv')">Factures</button>
+<button data-v="cli" onclick="go('cli')">Clients</button>
+<button data-v="set" onclick="go('set')">Réglages</button>
+</nav>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const CUR=["GNF","XOF","EUR","USD"];
+let S={clients:[],invoices:[],n:0,settings:{biz:"",phone:"",pay:"",cur:"GNF"}};
+try{const r=localStorage.getItem("invoicepilot-v1");if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
+let view="home",curId=null;
+const save=()=>{try{localStorage.setItem("invoicepilot-v1",JSON.stringify(S))}catch(e){alert("Impossible d’enregistrer sur ce téléphone. Vérifie l’espace disponible.")}};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+const today=()=>new Date().toISOString().slice(0,10);
+const nf=n=>new Intl.NumberFormat("fr-FR",{maximumFractionDigits:2}).format(n);
+const fd=d=>d?new Date(d+"T00:00:00").toLocaleDateString("fr-FR"):"—";
+const tot=i=>i.items.reduce((a,x)=>a+x.q*x.p,0);
+const cl=id=>S.clients.find(c=>c.id===id)||{name:"Client supprimé",phone:""};
+const st=i=>i.paid?"paid":(i.due&&i.due<today()?"late":"wait");
+const LBL={paid:"Payée",late:"En retard",wait:"En attente"};
+
+function go(v,id){view=v;curId=id||null;render()}
+function render(){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===view||((view==="new"||view==="det")&&b.dataset.v==="inv")));
+  $("#main").innerHTML=({home:vHome,inv:vInv,cli:vCli,set:vSet,new:vNew,det:vDet})[view]();
+  if(view==="new"){addRow();tgl()}
+  window.scrollTo(0,0);
+}
+
+function vHome(){
+  const by={};
+  S.invoices.forEach(i=>{const b=by[i.cur]=by[i.cur]||{paid:0,wait:0,late:0};b[st(i)]+=tot(i)});
+  const late=S.invoices.filter(i=>st(i)==="late");
+  if(!S.invoices.length)return `<h2>Bienvenue</h2><div class="card"><p>Crée ta première facture en moins d’une minute et envoie-la par WhatsApp.</p><button class="btn p" onclick="go('new')">Créer une facture</button></div><p><small>Ajoute d’abord le nom de ton activité dans Réglages : il apparaît sur tes factures.</small></p>`;
+  return `<h2>Tableau de bord</h2><button class="btn p" onclick="go('new')">+ Nouvelle facture</button>`
+  +Object.keys(by).map(c=>`<div class="card"><b>${c}</b><div class="three" style="margin-top:8px"><div><small>Payé</small><p class="big paid">${nf(by[c].paid)}</p></div><div><small>En attente</small><p class="big wait">${nf(by[c].wait)}</p></div><div><small>En retard</small><p class="big late">${nf(by[c].late)}</p></div></div></div>`).join("")
+  +(late.length?`<h3>À relancer</h3>`+late.map(i=>`<div class="card list" onclick="go('det','${i.id}')"><div><b>${esc(cl(i.cid).name)}</b><br><small>${esc(i.num)} · échue le ${fd(i.due)}</small></div><b class="late">${nf(tot(i))} ${i.cur}</b></div>`).join(""):`<p><small>Aucune facture en retard.</small></p>`);
+}
+
+function vInv(){
+  const l=[...S.invoices].sort((a,b)=>b.date.localeCompare(a.date));
+  return `<h2>Factures</h2><button class="btn p" onclick="go('new')">+ Nouvelle facture</button>`
+  +(l.length?l.map(i=>{const s=st(i);return `<div class="card list" onclick="go('det','${i.id}')"><div><b>${esc(i.num)}</b> ${esc(cl(i.cid).name)}<br><small>${fd(i.date)}</small></div><div class="r"><b>${nf(tot(i))} ${i.cur}</b><br><span class="tag ${s}">${LBL[s]}</span></div></div>`}).join(""):`<p><small>Aucune facture pour l’instant.</small></p>`);
+}
+
+function vNew(){
+  const opts=S.clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const d=new Date();d.setDate(d.getDate()+7);
+  return `<h2>Nouvelle facture</h2><div class="card">
+  <label>Client</label><select id="f-cl" onchange="tgl()">${opts}<option value="new">+ Nouveau client</option></select>
+  <div id="f-new"><label>Nom du client</label><input id="f-nn" placeholder="Ex. Boutique Mariama"><label>Téléphone WhatsApp (avec indicatif)</label><input id="f-np" inputmode="tel" placeholder="224 6xx xx xx xx"></div>
+  <div class="row"><div><label>Date</label><input type="date" id="f-d" value="${today()}"></div><div><label>Échéance</label><input type="date" id="f-due" value="${d.toISOString().slice(0,10)}"></div></div>
+  <label>Devise</label><select id="f-cur">${CUR.map(c=>`<option ${c===S.settings.cur?"selected":""}>${c}</option>`).join("")}</select>
+  <label>Articles ou services (description, quantité, prix)</label><div id="items" oninput="calc()"></div>
+  <button class="btn" onclick="addRow()">+ Ajouter une ligne</button>
+  <h3 id="f-tot">Total : 0</h3>
+  <button class="btn p" onclick="saveInv()">Enregistrer la facture</button><button class="btn" onclick="go('inv')">Annuler</button></div>`;
+}
+function tgl(){$("#f-new").style.display=$("#f-cl").value==="new"?"block":"none"}
+function addRow(){$("#items").insertAdjacentHTML("beforeend",`<div class="it"><input class="i-d" placeholder="Description"><input class="i-q" type="number" inputmode="decimal" min="0" value="1"><input class="i-p" type="number" inputmode="decimal" min="0" placeholder="Prix"></div>`)}
+function rows(){return [...document.querySelectorAll(".it")].map(r=>({d:r.querySelector(".i-d").value.trim(),q:+r.querySelector(".i-q").value||0,p:+r.querySelector(".i-p").value||0}))}
+function calc(){$("#f-tot").textContent="Total : "+nf(rows().reduce((a,x)=>a+x.q*x.p,0))+" "+$("#f-cur").value}
+function saveInv(){
+  const items=rows().filter(x=>x.d&&x.q>0&&x.p>0);
+  if(!items.length)return alert("Ajoute au moins une ligne avec une description, une quantité et un prix.");
+  let cid=$("#f-cl").value;
+  if(cid==="new"){
+    const n=$("#f-nn").value.trim();
+    if(!n)return alert("Entre le nom du client.");
+    cid=uid();S.clients.push({id:cid,name:n,phone:$("#f-np").value.trim()});
+  }
+  S.n=(S.n||0)+1;
+  const inv={id:uid(),num:"F-"+new Date().getFullYear()+"-"+String(S.n).padStart(3,"0"),cid,date:$("#f-d").value||today(),due:$("#f-due").value,cur:$("#f-cur").value,items,paid:false};
+  S.invoices.push(inv);save();go("det",inv.id);
+}
+
+function vDet(){
+  const i=S.invoices.find(x=>x.id===curId);
+  if(!i){view="inv";return vInv()}
+  const c=cl(i.cid),s=st(i),b=S.settings;
+  return `<div class="card sheet"><div class="row"><div><h2 style="margin:0">${esc(b.biz||"Ma facture")}</h2><small>${esc(b.phone)}</small></div><div class="r"><b>FACTURE</b><br>${esc(i.num)}<br><span class="tag ${s}">${LBL[s]}</span></div></div>
+  <p><small>Facturé à</small><br><b>${esc(c.name)}</b><br>${esc(c.phone)}</p>
+  <p><small>Date : ${fd(i.date)} · Échéance : ${fd(i.due)}</small></p>
+  <table><tr><th>Description</th><th class="r">Qté</th><th class="r">Prix</th><th class="r">Total</th></tr>${i.items.map(x=>`<tr><td>${esc(x.d)}</td><td class="r">${nf(x.q)}</td><td class="r">${nf(x.p)}</td><td class="r">${nf(x.q*x.p)}</td></tr>`).join("")}</table>
+  <h3 class="r">Total : ${nf(tot(i))} ${i.cur}</h3>
+  ${b.pay?`<p><small>Paiement</small><br>${esc(b.pay)}</p>`:""}</div>
+  <div class="noprint">
+  <button class="btn p" onclick="sendInv('${i.id}',0)">Envoyer par WhatsApp</button>
+  ${i.paid?"":`<button class="btn" onclick="sendInv('${i.id}',1)">Relancer par WhatsApp</button>`}
+  <button class="btn" onclick="togglePaid('${i.id}')">${i.paid?"Annuler « payée »":"Marquer payée"}</button>
+  <button class="btn" onclick="window.print()">PDF / Imprimer</button>
+  <button class="btn d" onclick="delInv('${i.id}')">Supprimer</button>
+  <p><small>WhatsApp envoie le message avec les détails. Pour joindre le PDF : touche « PDF / Imprimer », choisis « Enregistrer au format PDF », puis partage le fichier.</small></p></div>`;
+}
+function wa(phone,msg){const d=String(phone||"").replace(/\D/g,"");window.open("https://wa.me/"+d+"?text="+encodeURIComponent(msg),"_blank")}
+function sendInv(id,rem){
+  const i=S.invoices.find(x=>x.id===id),c=cl(i.cid),b=S.settings,t=nf(tot(i))+" "+i.cur;
+  const pay=b.pay?"Paiement : "+b.pay+". ":"";
+  const m=rem?`Bonjour ${c.name}, petit rappel amical : la facture ${i.num} de ${t} était à régler le ${fd(i.due)}. ${pay}Merci de me confirmer dès que c’est fait. ${b.biz}`
+  :`Bonjour ${c.name}, voici votre facture ${i.num} d’un montant de ${t}, à régler avant le ${fd(i.due)}. ${pay}Merci ! ${b.biz}`;
+  wa(c.phone,m);
+}
+function togglePaid(id){const i=S.invoices.find(x=>x.id===id);i.paid=!i.paid;save();render()}
+function delInv(id){if(confirm("Supprimer cette facture ? Cette action est définitive.")){S.invoices=S.invoices.filter(x=>x.id!==id);save();go("inv")}}
+
+function vCli(){
+  return `<h2>Clients</h2><div class="card"><label>Nom</label><input id="c-n"><label>Téléphone WhatsApp (avec indicatif)</label><input id="c-p" inputmode="tel" placeholder="224 6xx xx xx xx"><button class="btn p" onclick="addCli()">Ajouter le client</button></div>`
+  +(S.clients.length?S.clients.map(c=>{const n=S.invoices.filter(i=>i.cid===c.id&&!i.paid).length;return `<div class="card list"><div><b>${esc(c.name)}</b><br><small>${esc(c.phone)||"Pas de numéro"} · ${n} impayée(s)</small></div><button class="btn d" onclick="delCli('${c.id}')">Supprimer</button></div>`}).join(""):`<p><small>Aucun client pour l’instant.</small></p>`);
+}
+function addCli(){const n=$("#c-n").value.trim();if(!n)return alert("Entre le nom du client.");S.clients.push({id:uid(),name:n,phone:$("#c-p").value.trim()});save();render()}
+function delCli(id){
+  if(S.invoices.some(i=>i.cid===id))return alert("Ce client a des factures. Supprime d’abord ses factures.");
+  if(confirm("Supprimer ce client ?")){S.clients=S.clients.filter(c=>c.id!==id);save();render()}
+}
+
+function vSet(){
+  const b=S.settings;
+  return `<h2>Réglages</h2><div class="card"><label>Nom de ton activité</label><input id="s-b" value="${esc(b.biz)}"><label>Ton téléphone</label><input id="s-p" inputmode="tel" value="${esc(b.phone)}"><label>Comment te payer (apparaît sur la facture)</label><input id="s-y" placeholder="Ex. Orange Money 622 00 00 00" value="${esc(b.pay)}"><label>Devise par défaut</label><select id="s-c">${CUR.map(c=>`<option ${c===b.cur?"selected":""}>${c}</option>`).join("")}</select><button class="btn p" onclick="saveSet()">Enregistrer</button></div>
+  <div class="card"><b>Sauvegarde</b><p><small>Tes données sont enregistrées uniquement dans le navigateur de ce téléphone. Si tu vides les données du navigateur ou changes de téléphone, elles disparaissent. Fais une sauvegarde régulièrement.</small></p><button class="btn" onclick="exportData()">Télécharger la sauvegarde</button><label class="btn" style="margin-top:6px">Restaurer une sauvegarde<input type="file" accept="application/json" onchange="importData(event)" hidden></label></div>`;
+}
+function saveSet(){S.settings={biz:$("#s-b").value.trim(),phone:$("#s-p").value.trim(),pay:$("#s-y").value.trim(),cur:$("#s-c").value};save();alert("Réglages enregistrés.")}
+function exportData(){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:"application/json"}));a.download="invoicepilot-sauvegarde.json";a.click()}
+function importData(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.clients)||!Array.isArray(d.invoices))throw 0;S=Object.assign({clients:[],invoices:[],n:0,settings:S.settings},d);save();alert("Sauvegarde restaurée.");go("home")}catch(x){alert("Ce fichier n’est pas une sauvegarde InvoicePilot valide.")}};
+  r.readAsText(f);
+}
+render();
+</script>
+</body>
+</html>
